@@ -1,0 +1,27 @@
+find /Users/br/Software/Machine_learning/MTCNN-VGGFace2-InceptionResnetV1/dataset/lfw-deepfunneled/lfw-deepfunneled -type d -exec sh -c '
+  for d; do
+    if [ "$(find "$d" -maxdepth 1 -type f | wc -l)" -gt 3 ]; then
+      mkdir -p /Users/br/Software/Machine_learning/MTCNN-VGGFace2-InceptionResnetV1/LFW_dataset/training/"${d##*/}"
+      mkdir -p /Users/br/Software/Machine_learning/MTCNN-VGGFace2-InceptionResnetV1/LFW_dataset/testing/"${d##*/}"
+      i=0
+      for f in "$d"/*; do
+        if [ "$i" -eq 0 ]; then
+          cp "$f" /Users/br/Software/Machine_learning/MTCNN-VGGFace2-InceptionResnetV1/LFW_dataset/testing/"${d##*/}"/"${f##*/}"
+        else
+          cp "$f" /Users/br/Software/Machine_learning/MTCNN-VGGFace2-InceptionResnetV1/LFW_dataset/training/"${d##*/}"/"${f##*/}"
+        fi
+        i=$((i+1))
+      done
+    fi
+  done
+' sh {} +
+
+mkdir /Users/br/Software/Machine_learning/MTCNN-VGGFace2-InceptionResnetV1/{matched_faces,mismatched_faces} && \
+for folder in /Users/br/Software/Machine_learning/MTCNN-VGGFace2-InceptionResnetV1/lfw/*; do \
+  num_files=$(find "$folder" -maxdepth 1 -type f | wc -l); \
+  if [[ $num_files -eq 1 ]]; then \
+    mv "$folder" /Users/br/Software/Machine_learning/MTCNN-VGGFace2-InceptionResnetV1/mismatched_faces/; \
+  else \
+    mv "$folder" /Users/br/Software/Machine_learning/MTCNN-VGGFace2-InceptionResnetV1/matched_faces/; \
+  fi; \
+done

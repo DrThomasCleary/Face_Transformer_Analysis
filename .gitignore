@@ -1,0 +1,9 @@
+bin
+.vscode
+lib
+dataset
+LFW_dataset
+lfw
+matched_faces
+mismatched_faces
+pretrained_models
