@@ -1,22 +1,62 @@
 #importing libraries
-from facenet_pytorch import MTCNN, InceptionResnetV1
+from facenet_pytorch import MTCNN
 import torch
 from torchvision import datasets
 from torch.utils.data import DataLoader
 import os
-import matplotlib.pyplot as plt
 import numpy as np
 import time
+import math
+import importlib.util
+import matplotlib
+matplotlib.use('TkAgg')  # or another appropriate backend, like 'Qt5Agg', 'GTK3Agg', etc.
+import matplotlib.pyplot as plt
+
+
+# Import the 'perform_val' function from the 'util.utils' module
+util_path = "/Users/br/Software/Machine_learning/Face-Transformer/util/utils.py"
+spec = importlib.util.spec_from_file_location("util.utils", util_path)
+utils_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(utils_module)
+perform_val = utils_module.perform_val
+
+vit_face_path = "/Users/br/Software/Machine_learning/Face-Transformer/vit_pytorch/vit_face.py"
+spec = importlib.util.spec_from_file_location("vit_face", vit_face_path)
+vit_face_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(vit_face_module)
+ViT_face = vit_face_module.ViT_face
+
+# Initialize the ViT_face model
+model = ViT_face(
+    image_size=112,
+    patch_size=8,
+    loss_type='ArcFace',
+    GPU_ID=torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu'),
+    num_class=93431,
+    dim=512,
+    depth=20,
+    heads=8,
+    mlp_dim=2048,
+    dropout=0.1,
+    emb_dropout=0.1
+)
+
+# Load the pre-trained weights
+checkpoint_path = "/Users/br/Software/Machine_learning/MTCNN_face_transformer/pretrained_models/Backbone_VIT_Epoch_2_Batch_20000_Time_2021-01-12-16-48_checkpoint.pth"
+model.load_state_dict(torch.load(checkpoint_path, map_location=torch.device('cpu')))
+
+# Set the model to evaluation mode
+model.eval()
+
 
 # initializing MTCNN and InceptionResnetV1 
-mtcnn = MTCNN(image_size=100, margin=24, keep_all=False, min_face_size=50)
-resnet = InceptionResnetV1(pretrained='vggface2').eval()
+mtcnn = MTCNN(image_size=112, margin=24, keep_all=False, min_face_size=50)
 
 # load the dataset
-matched_dataset = datasets.ImageFolder('/Users/br/Software/Machine_learning/MTCNN-VGGFace2-InceptionResnetV1/LFW_dataset/matched_faces_blurred_5')
+matched_dataset = datasets.ImageFolder('/Users/br/Software/Machine_learning/MTCNN_face_transformer/LFW_dataset/small_samples/matched_faces_test')
 matched_loader = DataLoader(matched_dataset, collate_fn=lambda x: x[0])
 
-mismatched_dataset = datasets.ImageFolder('/Users/br/Software/Machine_learning/MTCNN-VGGFace2-InceptionResnetV1/LFW_dataset/mismatched_faces_blurred_5')
+mismatched_dataset = datasets.ImageFolder('/Users/br/Software/Machine_learning/MTCNN_face_transformer/LFW_dataset/small_samples/mismatched_faces_test')
 mismatched_dataset.idx_to_class = {i: c for c, i in mismatched_dataset.class_to_idx.items()}
 mismatched_loader = DataLoader(mismatched_dataset, collate_fn=lambda x: x[0])
 
@@ -65,8 +105,8 @@ for folder in os.listdir(matched_dataset.root):
             for i in range(2):
                 start_time_matched_resnet = time.time()
                 face, face_prob = mtcnn(images[i], return_prob=True)
-                if face is not None and face_prob > 0.00:
-                    emb = resnet(face.unsqueeze(0))
+                if face is not None and face_prob > 0.73:
+                    emb = model(face.unsqueeze(0))
                     embeddings.append(emb.detach())
                 else:
                     print(f"No face detected in {os.path.basename(image_path)}")
@@ -87,8 +127,8 @@ mismatched_name_list = []
 for image, index in mismatched_loader:
     start_time__mismatched_resnet = time.time()
     face, face_prob = mtcnn(image, return_prob=True)
-    if face is not None and face_prob > 0.00:
-        emb = resnet(face.unsqueeze(0))
+    if face is not None and face_prob > 0.73:
+        emb = model(face.unsqueeze(0))
         mismatched_embedding_list.append(emb.detach())
         mismatched_name_list.append(mismatched_dataset.idx_to_class[index])
         elapsed_time_mismatched_resnet = time.time() - start_time__mismatched_resnet
@@ -218,4 +258,4 @@ ax.set_yticks([0, 1, 2, 3])
 ax.set_yticklabels(['Mismatched_Incorrectly', 'Matched_Incorrectly', 'Mismatched_Correctly', 'Matched_Correctly'])
 ax.legend()
 
-plt.show()
+plt.savefig('/Users/br/Software/Machine_learning/MTCNN_face_transformer/output.png')
