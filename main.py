@@ -1,75 +1,51 @@
-#importing libraries
-from facenet_pytorch import MTCNN
-import torch
-from torchvision import datasets, transforms
-from torch.utils.data import DataLoader
 import os
-import numpy as np
 import time
-import math
-import importlib.util
+import torch
+import numpy as np
 import matplotlib.pyplot as plt
-from torchvision.transforms import Resize
+from torch.utils.data import DataLoader
+from vit_pytorch import ViT_face
+from torchvision import datasets, transforms
 
+# Load the state_dict from the checkpoint
+state_dict = torch.load('/Users/br/Software/Machine_learning/MTCNN_face_transformer/pretrained_models/Backbone_VIT_Epoch_2_Batch_20000_Time_2021-01-12-16-48_checkpoint.pth', map_location=torch.device('cpu'))
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-resize = Resize((112, 112))
-
-use_mtcnn = False  # Change this to False if you want to exclude MTCNN
-to_tensor = transforms.ToTensor()
-
-if use_mtcnn:
-    mtcnn = MTCNN(image_size=112, margin=24, keep_all=False, min_face_size=50)
-else:
-    mtcnn = None
-
-# Import the 'perform_val' function from the 'util.utils' module
-util_path = "/Users/br/Software/Machine_learning/Face-Transformer/util/utils.py"
-spec = importlib.util.spec_from_file_location("util.utils", util_path)
-utils_module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(utils_module)
-perform_val = utils_module.perform_val
-
-vits_face_path = "/Users/br/Software/Machine_learning/Face-Transformer/vit_pytorch/vits_face.py"
-spec = importlib.util.spec_from_file_location("vits_face", vits_face_path)
-vits_face_module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(vits_face_module)
-ViTs_face = vits_face_module.ViTs_face
-
-# Initialize the ViT_face model
-model = ViTs_face(
+# Initialize the model
+transformer = ViT_face(
     image_size=112,
     patch_size=8,
     loss_type='CosFace',
-    GPU_ID=torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu'),
-    num_class=93431,
+    GPU_ID=device,
+    num_class=93431,  
     dim=512,
     depth=20,
     heads=8,
-    pad = 2,
-    ac_patch_size = 8,
     mlp_dim=2048,
     dropout=0.1,
     emb_dropout=0.1
 )
 
-# Load the pre-trained weights
-checkpoint_path = "/Users/br/Software/Machine_learning/MTCNN_face_transformer/pretrained_models/Backbone_VIT_Epoch_2_Batch_20000_Time_2021-01-12-16-48_checkpoint.pth"
-model.load_state_dict(torch.load(checkpoint_path, map_location=torch.device('cpu')))
+# Load the state_dict into the model
+transformer.load_state_dict(state_dict)
+transformer.eval()
 
-# Set the model to evaluation mode
-model.eval()
-
-
-# initializing MTCNN and InceptionResnetV1 
-mtcnn = MTCNN(image_size=112, margin=24, keep_all=False, min_face_size=50)
+# Define data transformations
+data_transforms = transforms.Compose([
+    transforms.Resize((112, 112)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+])
 
 # load the dataset
-matched_dataset = datasets.ImageFolder('/Users/br/Software/Machine_learning/MTCNN_face_transformer/LFW_dataset/small_samples/matched_faces_test')
-matched_loader = DataLoader(matched_dataset, collate_fn=lambda x: x[0])
+matched_dataset = datasets.ImageFolder('/Users/br/Software/Machine_learning/MTCNN-VGGFace2-InceptionResnetV1/LFW_dataset/matched_faces', transform=data_transforms)
+matched_loader = DataLoader(matched_dataset, batch_size=2, shuffle=False)
 
-mismatched_dataset = datasets.ImageFolder('/Users/br/Software/Machine_learning/MTCNN_face_transformer/LFW_dataset/small_samples/mismatched_faces_test')
+mismatched_dataset = datasets.ImageFolder('/Users/br/Software/Machine_learning/MTCNN-VGGFace2-InceptionResnetV1/LFW_dataset/mismatched_faces', transform=data_transforms)
 mismatched_dataset.idx_to_class = {i: c for c, i in mismatched_dataset.class_to_idx.items()}
-mismatched_loader = DataLoader(mismatched_dataset, collate_fn=lambda x: x[0])
+mismatched_loader = DataLoader(mismatched_dataset, batch_size=2, shuffle=False)
+
+transformer.to(device)
 
 def calculate_accuracy(labels, distances, threshold):
     correct_predictions = 0
@@ -87,7 +63,6 @@ def calculate_accuracy(labels, distances, threshold):
 def calculate_far_frr(labels, distances, threshold):
     num_positive = np.sum(labels)
     num_negative = len(labels) - num_positive
-
     false_accepts = 0
     false_rejects = 0
 
@@ -99,14 +74,10 @@ def calculate_far_frr(labels, distances, threshold):
 
     FAR = false_accepts / num_negative
     FRR = false_rejects / num_positive
-
     return FAR, FRR
 
-def add_jitter(values, jitter_amount=0.2):
-    return values + np.random.uniform(-jitter_amount, jitter_amount, len(values))
-
 # Initialize variables to track time
-resnet_time = 0
+computation_time = 0
 n_operations = 0
 
 # generate embeddings for the dataset
@@ -128,43 +99,40 @@ for folder in os.listdir(matched_dataset.root):
             embeddings = []
             for i in range(2):
                 start_time_matched_resnet = time.time()
-                resized_image = resize(images[i])
-                tensor_image = to_tensor(resized_image)
-                emb = model(tensor_image.unsqueeze(0))
+                img_tensor = data_transforms(images[i]).unsqueeze(0).to(device)
+                emb = transformer(img_tensor)
                 embeddings.append(emb.detach())
                 elapsed_time_matched_resnet = time.time() - start_time_matched_resnet
-                resnet_time += elapsed_time_matched_resnet
+                computation_time += elapsed_time_matched_resnet
                 n_operations += 1
-            if len(embeddings) == 2:
-                matched_embedding_list.extend(embeddings)
-                matched_name_list.extend([folder] * 2)
-            else:
-                print(f"Not enough faces detected in {folder_path}")
-
-            
+            matched_embedding_list.extend(embeddings)
+            matched_name_list.extend([folder] * 2)
+        else:
+            print(f"Not enough images in {folder_path}")
 
 # generate embeddings for the dataset
 mismatched_embedding_list = []
 mismatched_name_list = []
 for image, index in mismatched_loader:
     start_time__mismatched_resnet = time.time()
-    resized_image = resize(image)
-    tensor_image = to_tensor(resized_image)
-    emb = model(tensor_image.unsqueeze(0))
-    mismatched_embedding_list.append(emb.detach())  
-    mismatched_name_list.append(mismatched_dataset.idx_to_class[index]) 
+    img_tensor = image.to(device)
+    emb = transformer(img_tensor)
+    mismatched_embedding_list.append(emb.detach())
+    mismatched_name_list.append(mismatched_dataset.idx_to_class[index[0].item()])
     elapsed_time_mismatched_resnet = time.time() - start_time__mismatched_resnet
-    resnet_time += elapsed_time_mismatched_resnet
+    computation_time += elapsed_time_mismatched_resnet
     n_operations += 1
-
 
 if len(mismatched_embedding_list) % 2 != 0:
     mismatched_embedding_list.pop()
     mismatched_name_list.pop()
-
-
+    
 dist_matched = [torch.dist(matched_embedding_list[i], matched_embedding_list[i + 1]).item() for i in range(0, len(matched_embedding_list), 2)]
 dist_mismatched = [torch.dist(mismatched_embedding_list[i], mismatched_embedding_list[i + 1]).item() for i in range(0, len(mismatched_embedding_list), 2)]
+
+# Calculate average distances
+avg_dist_matched = np.mean(dist_matched)
+avg_dist_mismatched = np.mean(dist_mismatched)
 
 distances = dist_matched + dist_mismatched
 labels = [1] * len(dist_matched) + [0] * len(dist_mismatched)
@@ -182,10 +150,8 @@ for threshold in thresholds:
 
 max_accuracy_index = np.argmax(accuracies)
 max_accuracy_threshold = thresholds[max_accuracy_index]
-max_accuracy = accuracies[max_accuracy_index]
 eer_index = np.argmin(np.abs(np.array(FARs) - np.array(FRRs)))
 eer = (FARs[eer_index] + FRRs[eer_index]) / 2
-print("EER:", eer)
 
 # Calculate the accuracy and F1 score of the model
 true_matched = []
@@ -211,78 +177,76 @@ for i in range(0, len(mismatched_embedding_list), 2):
     true_mismatched.append(is_mismatch)
     pred_mismatched.append(dist > max_accuracy_threshold)
 
-# True positives
-matched_correctly = 0
-dist_matched_correctly = []
-for dist, same_face, pred in zip(dist_matched, true_matched, pred_matched):
-    if same_face == True and pred == True:
-        matched_correctly += 1
-        dist_matched_correctly.append(dist)
 
-# True negatives
-mismatched_correctly = 0
-dist_mismatched_correctly = []
-for dist, different_face, pred in zip(dist_mismatched, true_mismatched, pred_mismatched):
-    if different_face == True and pred == True:
-        mismatched_correctly += 1
-        dist_mismatched_correctly.append(dist)
+# Update the counts for recognized faces
+True_Positives = sum([same_face and pred for same_face, pred in zip(true_matched, pred_matched)]) # True Positives
+True_Negatives = sum([different_face and pred for different_face, pred in zip(true_mismatched, pred_mismatched)]) # True Negatives
+False_Negatives = sum([same_face and not pred for same_face, pred in zip(true_matched, pred_matched)]) # False Negatives
+False_Positives = sum([different_face and not pred for different_face, pred in zip(true_mismatched, pred_mismatched)]) # False Positives
 
-# False positives
-matched_incorrectly = 0
-dist_matched_incorrectly = []
-for dist, same_face, pred in zip(dist_matched, true_matched, pred_matched):
-    if same_face == True and pred == False:
-        matched_incorrectly += 1
-        dist_matched_incorrectly.append(dist)
+# Calculate total predictions
+total_predictions = True_Positives + False_Negatives + True_Negatives + False_Positives
 
-# False negatives
-mismatched_incorrectly = 0
-dist_mismatched_incorrectly = []
-for dist, different_face, pred in zip(dist_mismatched, true_mismatched, pred_mismatched):
-    if different_face == True and pred == False:
-        mismatched_incorrectly += 1
-        dist_mismatched_incorrectly.append(dist)
-
-accuracy = (matched_correctly + mismatched_correctly) / (matched_correctly + mismatched_correctly + matched_incorrectly + mismatched_incorrectly)
-precision = matched_correctly / (matched_correctly + matched_incorrectly)
-recall = matched_correctly / (matched_correctly + mismatched_incorrectly)
+# Calculate accuracy, precision, recall, and F1 score
+accuracy = (True_Positives + True_Negatives) / total_predictions
+precision = True_Positives / (True_Positives + False_Positives)
+recall = True_Positives / (True_Positives + False_Negatives)
 f1 = 2 * precision * recall / (precision + recall)
-pred_matched.append(dist < max_accuracy_threshold)
-pred_mismatched.append(dist > max_accuracy_threshold)
-average_resnet_time = resnet_time / n_operations
+# Calculate the average InceptionResnetV1 time
+average_computation_time = computation_time / n_operations
 
-print("Max Accuracy Threshold:", max_accuracy_threshold)
-print("Average InceptionResnetV1 time:", average_resnet_time)
-print("Matched_Correctly: ", matched_correctly)
-print("Mismatched_Correctly: ", mismatched_correctly)
-print("Matched_Incorrectly: ", matched_incorrectly)
-print("Mismatched_Incorrectly: ", mismatched_incorrectly)
+print("Optimal Accuracy Threshold", max_accuracy_threshold)
+print("Average Computation time:", average_computation_time)
+print("Detection Rate: 100.0")
+print("True Positives: ", True_Positives)
+print("True Negatives: ", True_Negatives)
+print("False Negatives: ", False_Negatives)
+print("False Positives: ", False_Positives)
+print("Average distance for matched faces:", avg_dist_matched)
+print("Average distance for mismatched faces:", avg_dist_mismatched)
+print("EER:", eer)
 print("Accuracy: ", accuracy)
 print("Precision: ", precision)
 print("Recall: ", recall)
 print("F1 score: ", f1)
 
+
 # Scatter plot
 fig, ax = plt.subplots()
 
+def add_jitter(values, jitter_amount):
+    return [value + jitter_amount * (2 * np.random.rand() - 1) for value in values]
+
 # Increase jitter amount
-jitter_amount = 0.5
+jitter_amount = 0.45
+
+# Define plot title
+plot_title = "Face Transformer Pre-trained on MS-Celeb-1M tested on the LFW Dataset"
+
+dist_true_positives = [dist for dist, same_face, pred in zip(dist_matched, true_matched, pred_matched) if same_face == True and pred == True]
+dist_true_negatives = [dist for dist, different_face, pred in zip(dist_mismatched, true_mismatched, pred_mismatched) if different_face == True and pred == True]
+dist_false_negatives = [dist for dist, same_face, pred in zip(dist_matched, true_matched, pred_matched) if same_face == True and pred == False]
+dist_false_positives = [dist for dist, different_face, pred in zip(dist_mismatched, true_mismatched, pred_mismatched) if different_face == True and pred == False]
 
 # True positives
-ax.scatter(dist_matched_correctly, add_jitter([3] * len(dist_matched_correctly), jitter_amount), c='green', alpha=0.5, label='Matched_Correctly')
-# True negatives
-ax.scatter(dist_mismatched_correctly, add_jitter([2] * len(dist_mismatched_correctly), jitter_amount), c='blue', alpha=0.5, label='Mismatched_Correctly')
-# False positives
-ax.scatter(dist_matched_incorrectly, add_jitter([1] * len(dist_matched_incorrectly), jitter_amount), c='red', alpha=0.5, label='Matched_Incorrectly')
+ax.errorbar(dist_true_positives, add_jitter([0] * len(dist_true_positives), jitter_amount), fmt='s', c='green', alpha=0.5, label='True Positives')
 # False negatives
-ax.scatter(dist_mismatched_incorrectly, add_jitter([0] * len(dist_mismatched_incorrectly), jitter_amount), c='orange', alpha=0.5, label='Mismatched_Incorrectly')
+ax.errorbar(dist_false_negatives, add_jitter([0] * len(dist_false_negatives), jitter_amount), fmt='o', c='red', alpha=0.5, label='False Negatives')
+# True negatives
+ax.errorbar(dist_true_negatives, add_jitter([1] * len(dist_true_negatives), jitter_amount), fmt='p', c='blue', alpha=0.5, label='True Negatives')
+# False positives
+ax.errorbar(dist_false_positives, add_jitter([1] * len(dist_false_positives), jitter_amount), fmt='P', c='orange', alpha=0.5, label='False Positives')
 
 # EER threshold
-ax.axvline(x=max_accuracy_threshold, color='purple', linestyle='--', label='Max_accuracy Threshold')
+ax.axvline(x=max_accuracy_threshold, color='purple', linestyle='-', label='Optimal Accuracy Threshold Distance')
+ax.axvline(x=avg_dist_matched, color='black', linestyle=':', label='Average Matched Distance')
+ax.axvline(x=avg_dist_mismatched, color='black', linestyle='--', label='Average Mismatched Distance')
 
 ax.set_xlabel('Distance')
-ax.set_yticks([0, 1, 2, 3])
-ax.set_yticklabels(['Mismatched_Incorrectly', 'Matched_Incorrectly', 'Mismatched_Correctly', 'Matched_Correctly'])
+ax.set_yticks([0, 1])
+ax.set_yticklabels(['Matched Faces','Mismatched Faces'])
+ax.set_title(plot_title)
 ax.legend()
 
-plt.savefig('/Users/br/Software/Machine_learning/MTCNN_face_transformer/output.png')
+plt.show()
+
