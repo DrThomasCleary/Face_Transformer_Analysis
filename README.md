@@ -16,6 +16,7 @@ The results are respectable for such a new architecture, but the paper introduci
 ![Screenshot 2023-04-10 at 01 15 42](https://user-images.githubusercontent.com/118690399/230803260-2a9585e9-50f5-4b3f-aae7-c103139146f0.png)
 
 The results:
+
 ![Screenshot 2023-04-10 at 01 16 20](https://user-images.githubusercontent.com/118690399/230803292-94df40ac-7499-4747-bbc2-697019c8b43e.png)
 
 
@@ -27,9 +28,9 @@ As the blurriness intensity increases, the Recall rises while the Precision decr
 
 The model shifts the confidence scores of all tests closer to 0! This results in more True Positive outcomes and a decrease in False Negatives (leading to higher recall), but it also significantly increases the number of False Positives (resulting in lower precision). A similar phenomenon is observed with a decrease in resolution, which makes it evident that this model struggles with generalization and requires further work to enhance its robustness. I suggest the following:
 
-Augment the training data with more low-resolution and blurry images.
-Fine-tune the model on low-resolution or blurry images.
-Apply adaptive computation time strategies.
-Modify the loss function to take into account the distance between matched and mismatched pairs more explicitly, or explore other loss functions such as ArcFace or SphereFace.
-Experiment with different model architectures or hyperparameter configurations to improve the model's robustness.
-Incorporate attention mechanisms to focus on the most discriminative facial features, especially in challenging conditions.
+-Augment the training data with more low-resolution and blurry images.
+-Fine-tune the model on low-resolution or blurry images.
+-Apply adaptive computation time strategies.
+-Modify the loss function to take into account the distance between matched and mismatched pairs more explicitly, or explore other loss functions such as ArcFace or SphereFace.
+-Experiment with different model architectures or hyperparameter configurations to improve the model's robustness.
+-Incorporate attention mechanisms to focus on the most discriminative facial features, especially in challenging conditions.
