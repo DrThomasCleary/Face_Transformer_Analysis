@@ -1,4 +1,5 @@
 # Face_Transformer_Analysis
+Face transformer implemented from the repo:https://github.com/zhongyy/Face-Transformer
 
 Please refer to my other repository for details on how to set your data for face verification in order to test your model performance on matched face pairs 
 and mismatched face pairs: https://github.com/DrThomasCleary/MTCNN_InceptionResnetV1_VGGFace2
